@@ -1,16 +1,16 @@
+from itertools import chain
 from typing import Sequence
 
 from PIL import Image, ImageDraw
 
 from .graph import Graph
-from .obstacle import Obstacle
 
 
 class Visualizer:
     def __init__(
         self,
         graph: Graph,
-        paths: Sequence[Sequence[tuple[float, float]]],
+        paths: Sequence[Sequence[tuple[float, float]]] = (),
         width: int = 400,
         height: int = 400,
     ) -> None:
@@ -25,18 +25,8 @@ class Visualizer:
         min_x = min_y = float("inf")
         max_x = max_y = float("-inf")
 
-        for o in self.graph.obstacles:
-            if o.x0 < min_x:
-                min_x = o.x0
-            if o.y0 < min_y:
-                min_y = o.y0
-            if o.x1 > max_x:
-                max_x = o.x1
-            if o.y1 > max_y:
-                max_y = o.y1
-
-        for path in self.paths:
-            for x, y in path:
+        for points in chain(self.paths, (o.points for o in self.graph.obstacles)):
+            for x, y in points:
                 if x < min_x:
                     min_x = x
                 if y < min_y:
@@ -77,13 +67,35 @@ class Visualizer:
         self.image = Image.new("RGB", (self.width, self.height), (255, 255, 255))
         draw = ImageDraw.Draw(self.image)
 
+        # obstacles
         for obstacle in self.graph.obstacles:
-            draw.rectangle(
-                (
-                    self.coordinates_to_pixel(obstacle.x0, obstacle.y1),
-                    self.coordinates_to_pixel(obstacle.x1, obstacle.y0),
-                ),
+            draw.polygon(
+                [self.coordinates_to_pixel(*point) for point in obstacle.points],
                 (0, 0, 0),
+            )
+
+        # connections
+        for node in self.graph._all_nodes():  # noqa: SLF001
+            for other in node.connections.all:
+                draw.line(
+                    (
+                        self.coordinates_to_pixel(node.x, node.y),
+                        self.coordinates_to_pixel(other.x, other.y),
+                    ),
+                    (118, 30, 176),
+                )
+            draw.circle(
+                self.coordinates_to_pixel(node.x, node.y),
+                2,
+                (121, 156, 163) if node.concave else (5, 96, 161),
+            )
+
+        # nodes
+        for node in self.graph._all_nodes():  # noqa: SLF001
+            draw.circle(
+                self.coordinates_to_pixel(node.x, node.y),
+                2,
+                (121, 156, 163) if node.concave else (5, 96, 161),
             )
 
         for path in self.paths:
