@@ -1,5 +1,5 @@
 from .graph import Graph
-from .obstacle import Rectangle
+from .shapes import Polygon, Rectangle
 from .visualizer import Visualizer
 
-__all__ = ["Graph", "Rectangle", "Visualizer"]
+__all__ = ["Graph", "Polygon", "Rectangle", "Visualizer"]

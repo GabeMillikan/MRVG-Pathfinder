@@ -1,4 +1,3 @@
-from itertools import chain
 from typing import Sequence
 
 from PIL import Image, ImageDraw
@@ -15,7 +14,7 @@ class Visualizer:
         height: int = 400,
     ) -> None:
         self.graph = graph
-        self.paths = paths
+        self.paths = list(paths)
         self.width = width
         self.height = height
 
@@ -25,7 +24,12 @@ class Visualizer:
         min_x = min_y = float("inf")
         max_x = max_y = float("-inf")
 
-        for points in chain(self.paths, (o.points for o in self.graph.obstacles)):
+        point_generators = [
+            (point for path in self.paths for point in path),
+            (vertex for o in self.graph.obstacles for vertex in o.vertex_map),
+        ]
+
+        for points in point_generators:
             for x, y in points:
                 if x < min_x:
                     min_x = x
@@ -70,19 +74,20 @@ class Visualizer:
         # obstacles
         for obstacle in self.graph.obstacles:
             draw.polygon(
-                [self.coordinates_to_pixel(*point) for point in obstacle.points],
+                [self.coordinates_to_pixel(*point) for point in obstacle.vertex_map],
                 (0, 0, 0),
             )
 
         # connections
         for node in self.graph._all_nodes():  # noqa: SLF001
-            for other in node.connections.all:
+            for other in node.connections.tuple:
                 draw.line(
                     (
                         self.coordinates_to_pixel(node.x, node.y),
                         self.coordinates_to_pixel(other.x, other.y),
                     ),
                     (118, 30, 176),
+                    2,
                 )
             draw.circle(
                 self.coordinates_to_pixel(node.x, node.y),
