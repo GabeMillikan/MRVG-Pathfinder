@@ -154,6 +154,8 @@ class Visualizer:
                 stroke_width=1,
                 stroke_fill=(0, 0, 0),
             )
+            if len(node.connections.set) == 5:
+                print(node, node.connections)
 
         for path in self.paths:
             for a, b in zip(path, path[1:]):

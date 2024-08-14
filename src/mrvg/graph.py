@@ -128,9 +128,6 @@ class Graph:
                 if other in node.connections.set:
                     continue
 
-                if {(node.x, node.y), (other.x, other.y)} == {(1, 0), (4, 5)}:
-                    print("ABOUT TO")
-
                 if any(
                     o.vertex_vector_direction_too_narrow(
                         (node.x, node.y),
