@@ -1,5 +1,6 @@
 import bisect
 import math
+import time
 from dataclasses import dataclass
 from threading import Lock
 from typing import Generator, Sequence
@@ -47,13 +48,14 @@ class AStarSets:
                 # its worse), discard the update
                 return
 
-            i = bisect.bisect(
+            i = bisect.bisect_left(
                 self.sorted_open,
                 AStarSets.open_sort_key(existing),
                 key=AStarSets.open_sort_key,
             )
+            assert self.sorted_open[i] is existing
             del self.sorted_open[i]
-            del self.opened[pn.point]
+            del self.opened[existing.point]
 
         bisect.insort(self.sorted_open, pn, key=AStarSets.open_sort_key)
         self.opened[pn.point] = pn
@@ -96,9 +98,10 @@ class Graph:
         self,
         obstacle: Polygon,
     ) -> None:
-        print(f"Adding obstacle: {obstacle}")
         assert obstacle not in self._obstacles, "This obstacle is already in the graph."
-
+        time_spent_raycasting = 0
+        time_spent_narrowing = 0
+        time_spent_encompassing = 0
         created_convex_nodes: set[Node] = set()
 
         # create or update nodes on each convex point on the obstacle
@@ -108,10 +111,12 @@ class Graph:
 
             node, created = self._get_or_create_node(v.x, v.y)
             if created:
+                before = time.perf_counter()
                 node.encompassing_obstacles.update(
                     self._get_encompassing_obstacles(node),
                     False,  # cannot be convex because otherwise the node would've existed
                 )
+                time_spent_encompassing += time.perf_counter() - before
             became_concave = node.encompassing_obstacles.add(obstacle, True)
             if became_concave:
                 node.connections.sever()
@@ -124,15 +129,15 @@ class Graph:
             if obstacle in node.encompassing_obstacles.all:
                 continue
 
+            before = time.perf_counter()
             if not obstacle.includes_point(*node.point):
+                time_spent_encompassing += time.perf_counter() - before
                 continue
+            time_spent_encompassing += time.perf_counter() - before
 
             # must be concave because convex vertices were handled above
             became_concave = node.encompassing_obstacles.add(obstacle, False)
             if became_concave:
-                print(
-                    f"Severing {node} connections because it's now concave.",
-                )
                 node.connections.sever()
 
         # sever connections blocked by the new obstacle
@@ -142,6 +147,7 @@ class Graph:
 
             for other in node.connections.tuple:
                 # blocking (or useless) because too narrow...
+                before = time.perf_counter()
                 if (
                     obstacle in node.encompassing_obstacles.convex
                     and obstacle.vertex_vector_direction_too_narrow(
@@ -150,16 +156,16 @@ class Graph:
                         other.y - node.y,
                     )
                 ):
-                    print(
-                        f"Severing {node} -> {other} because it's now outgoing too narrow.",
-                    )
+                    time_spent_narrowing += time.perf_counter() - before
                     node.connections.sever(other)
                     continue
+                time_spent_narrowing += time.perf_counter() - before
 
                 # blocking by raycast...
+                before = time.perf_counter()
                 if self._node_raycast(node, other, obstacle).blocked:
-                    print(f"Severing {node} -> {other} because it's now blocked.")
                     node.connections.sever(other)
+                time_spent_raycasting += time.perf_counter() - before
 
         # create connections to and from new convex nodes
         for node in created_convex_nodes:
@@ -173,6 +179,7 @@ class Graph:
                 if other in node.connections.map:
                     continue
 
+                before = time.perf_counter()
                 if any(
                     o.vertex_vector_direction_too_narrow(
                         node.point,
@@ -181,11 +188,11 @@ class Graph:
                     )
                     for o in node.encompassing_obstacles.convex
                 ):  # TODO: quad tree - we shouldn't need to calculate this for _every_ node, just for regions
-                    print(
-                        f"Did not connect {node} -> {other} because it's outgoing too narrow.",
-                    )
+                    time_spent_narrowing += time.perf_counter() - before
                     continue
+                time_spent_narrowing += time.perf_counter() - before
 
+                before = time.perf_counter()
                 if any(
                     o.vertex_vector_direction_too_narrow(
                         (other.x, other.y),
@@ -194,20 +201,24 @@ class Graph:
                     )
                     for o in other.encompassing_obstacles.convex
                 ):  # TODO: quad tree - we shouldn't need to calculate this for _every_ node, just for regions
-                    print(
-                        f"Did not connect {node} -> {other} because it's incoming to narrow.",
-                    )
+                    time_spent_narrowing += time.perf_counter() - before
                     continue
+                time_spent_narrowing += time.perf_counter() - before
 
+                before = time.perf_counter()
                 if self._node_raycast(node, other, obstacle).blocked:
-                    print(f"Did not connect {node} -> {other} because it's blocked")
+                    time_spent_raycasting += time.perf_counter() - before
                     continue
+                time_spent_raycasting += time.perf_counter() - before
 
-                print(f"Connected {node} -> {other}")
                 node.connections.link(other)
 
         # store the new obstacle
         self._obstacles.add(obstacle)
+
+        print(f"Spent {time_spent_encompassing * 1000:.2f}ms encompassing")
+        print(f"Spent {time_spent_narrowing * 1000:.2f}ms narrowing")
+        print(f"Spent {time_spent_raycasting * 1000:.2f}ms raycasting")
 
     def _node_raycast(
         self,
