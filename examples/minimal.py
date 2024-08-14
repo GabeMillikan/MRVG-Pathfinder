@@ -9,7 +9,12 @@ graph = mrvg.Graph(
         mrvg.Rectangle(2, 2, 3, 3),
     ],
 )
+
+path = graph.find_path((-1, -1), (6, 6))
+assert path
+
 mrvg.Visualizer(
     graph,
+    [path],
     grid=1,
 ).display()

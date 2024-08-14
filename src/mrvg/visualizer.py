@@ -11,8 +11,8 @@ class Visualizer:
         self,
         graph: Graph,
         paths: Sequence[Sequence[tuple[float, float]]] = (),
-        width: int = 400,
-        height: int = 400,
+        width: int = 512,
+        height: int = 512,
         *,
         grid: float = 0,
     ) -> None:
@@ -105,6 +105,13 @@ class Visualizer:
                     (200, 200, 200),
                     1,
                 )
+                draw.text(
+                    self.coordinates_to_pixel(x, min_y),
+                    f"{x:g}",
+                    stroke_width=1,
+                    stroke_fill=(0, 0, 0),
+                    anchor="mb",
+                )
                 x += self.grid
             while y <= max_y:
                 draw.line(
@@ -114,6 +121,13 @@ class Visualizer:
                     ),
                     (200, 200, 200),
                     1,
+                )
+                draw.text(
+                    self.coordinates_to_pixel(min_x, y),
+                    f"{y:g}",
+                    stroke_width=1,
+                    stroke_fill=(0, 0, 0),
+                    anchor="lm",
                 )
                 y += self.grid
 
@@ -133,30 +147,10 @@ class Visualizer:
                         self.coordinates_to_pixel(other.x, other.y),
                     ),
                     (118, 30, 176),
-                    2,
+                    1,
                 )
-            draw.circle(
-                self.coordinates_to_pixel(node.x, node.y),
-                2,
-                (121, 156, 163) if node.concave else (5, 96, 161),
-            )
 
-        # nodes
-        for node in self.graph._all_nodes():  # noqa: SLF001
-            draw.circle(
-                self.coordinates_to_pixel(node.x, node.y),
-                2,
-                (121, 156, 163) if node.concave else (5, 96, 161),
-            )
-            draw.text(
-                self.coordinates_to_pixel(node.x, node.y),
-                str(len(node.connections.set)),
-                stroke_width=1,
-                stroke_fill=(0, 0, 0),
-            )
-            if len(node.connections.set) == 5:
-                print(node, node.connections)
-
+        # paths
         for path in self.paths:
             for a, b in zip(path, path[1:]):
                 draw.line(
@@ -164,7 +158,24 @@ class Visualizer:
                         self.coordinates_to_pixel(*a),
                         self.coordinates_to_pixel(*b),
                     ),
-                    (255, 0, 0),
+                    (7, 145, 28),
+                    3,
+                )
+
+        # nodes
+        for node in self.graph._all_nodes():  # noqa: SLF001
+            draw.circle(
+                self.coordinates_to_pixel(node.x, node.y),
+                4 if node.concave else 7,
+                (121, 156, 163) if node.concave else (5, 96, 161),
+            )
+            if not node.concave:
+                draw.text(
+                    self.coordinates_to_pixel(node.x, node.y),
+                    str(len(node.connections.set)),
+                    stroke_width=1,
+                    stroke_fill=(0, 0, 0),
+                    anchor="mm",
                 )
 
     def display(self, title: str | None = None) -> None:
