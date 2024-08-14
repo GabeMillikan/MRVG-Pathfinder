@@ -146,7 +146,7 @@ class Visualizer:
                         self.coordinates_to_pixel(node.x, node.y),
                         self.coordinates_to_pixel(other.x, other.y),
                     ),
-                    (118, 30, 176),
+                    (66, 100, 168),
                     1,
                 )
 
@@ -158,9 +158,11 @@ class Visualizer:
                         self.coordinates_to_pixel(*a),
                         self.coordinates_to_pixel(*b),
                     ),
-                    (7, 145, 28),
+                    (209, 6, 162),
                     3,
                 )
+            draw.circle(self.coordinates_to_pixel(*path[0]), 3, (181, 5, 43))
+            draw.circle(self.coordinates_to_pixel(*path[-1]), 3, (7, 145, 28))
 
         # nodes
         for node in self.graph._nodes.values():  # noqa: SLF001
