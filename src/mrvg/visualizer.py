@@ -172,7 +172,7 @@ class Visualizer:
             if not node.concave:
                 draw.text(
                     self.coordinates_to_pixel(node.x, node.y),
-                    str(len(node.connections.set)),
+                    str(len(node.connections.map)),
                     stroke_width=1,
                     stroke_fill=(0, 0, 0),
                     anchor="mm",

@@ -1,3 +1,4 @@
+import math
 from typing import Iterable
 
 from .shapes import Polygon
@@ -64,37 +65,51 @@ class EncompassingObstacles:
 
 class Connections:
     def __init__(self, node: "Node") -> None:
-        self.set: set["Node"] = set()
+        self.map: dict["Node", float] = {}
         self.node = node
 
     def link(self, other: "Node") -> None:
-        self.set.add(other)
-        other.connections.set.add(self.node)
+        distance = math.dist((self.node.x, self.node.y), (other.x, other.y))
+        self.map[other] = distance
+        other.connections.map[self.node] = distance
 
     def sever(self, node: "Node | None" = None) -> None:
         if node:
-            self.set.remove(node)
-            node.connections.set.remove(self.node)
+            del self.map[node]
+            del node.connections.map[self.node]
         else:
-            for n in self.set:
-                n.connections.set.remove(self.node)
-            self.set.clear()
+            for n in self.map:
+                del n.connections.map[self.node]
+            self.map.clear()
 
     @property
     def tuple(self) -> tuple["Node", ...]:
-        return tuple(self.set)
+        return tuple(self.map)
 
 
 class Node:
     def __init__(self, x: float, y: float) -> None:
-        self.x = x
-        self.y = y
+        self.point = (x, y)
         self.encompassing_obstacles = EncompassingObstacles()
         self.connections = Connections(self)
 
     def __str__(self) -> str:
         return f"({self.x:g}, {self.y:g})"
 
+    def __eq__(self, other: object) -> bool:
+        return self is other
+
+    def __hash__(self) -> int:
+        return id(self)
+
     @property
     def concave(self) -> bool:
         return self.encompassing_obstacles.any_concave
+
+    @property
+    def x(self) -> float:
+        return self.point[0]
+
+    @property
+    def y(self) -> float:
+        return self.point[1]
