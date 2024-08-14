@@ -1,5 +1,5 @@
 from threading import Lock
-from typing import Generator, Sequence
+from typing import Generator, Literal, Sequence
 
 from .node import Node
 from .shapes import Polygon, RaycastResult
@@ -109,7 +109,7 @@ class Graph:
                     continue
 
                 # blocking by raycast...
-                if self._raycast_between_nodes(node, other, obstacle).blocked:
+                if self._node_raycast(node, other, obstacle).blocked:
                     print(f"Severing {node} -> {other} because it's now blocked.")
                     node.connections.sever(other)
 
@@ -154,7 +154,7 @@ class Graph:
                     )
                     continue
 
-                if self._raycast_between_nodes(node, other, obstacle).blocked:
+                if self._node_raycast(node, other, obstacle).blocked:
                     print(f"Did not connect {node} -> {other} because it's blocked")
                     continue
 
@@ -164,23 +164,40 @@ class Graph:
         # store the new obstacle
         self._obstacles.add(obstacle)
 
-    def _raycast_between_nodes(
+    def _node_raycast(
         self,
         n0: Node,
         n1: Node,
-        primary_obstacle: Polygon | None = None,
+        prioritize_obstacle: Polygon | None = None,
     ) -> RaycastResult:
-        if primary_obstacle is not None:
-            result = primary_obstacle.raycast(n0.x, n0.y, n1.x, n1.y)
-        else:
-            result = RaycastResult()
+        return self.raycast(
+            n0.x,
+            n0.y,
+            n1.x,
+            n1.y,
+            prioritize_obstacle,
+        )
+
+    def raycast(
+        self,
+        x0: float,
+        y0: float,
+        x1: float,
+        y1: float,
+        prioritize_obstacle: Polygon | None = None,
+    ) -> RaycastResult:
+        result = RaycastResult()
+        if (
+            prioritize_obstacle is not None
+            and prioritize_obstacle.raycast(x0, y0, x1, y1, result).blocked
+        ):
+            return result
 
         for obstacle in self._obstacles:  # TODO: quad tree
-            if obstacle is primary_obstacle:
+            if obstacle is prioritize_obstacle:
                 continue
-
-            if obstacle.raycast(n0.x, n0.y, n1.x, n1.y, result).blocked:
-                return result
+            if obstacle.raycast(x0, y0, x1, y1, result).blocked:
+                break
 
         return result
 
@@ -193,7 +210,10 @@ class Graph:
         start_point: tuple[float, float],
         end_point: tuple[float, float],
     ) -> list[tuple[float, float]] | None:
-        return [start_point, end_point]
+        if not self.raycast(*start_point, *end_point).blocked:
+            return [start_point, end_point]
+
+        return []
 
 
 __all__ = ["Graph"]
