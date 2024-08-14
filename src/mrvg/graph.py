@@ -128,6 +128,9 @@ class Graph:
                 if other in node.connections.set:
                     continue
 
+                if {(node.x, node.y), (other.x, other.y)} == {(1, 0), (4, 5)}:
+                    print("ABOUT TO")
+
                 if any(
                     o.vertex_vector_direction_too_narrow(
                         (node.x, node.y),
@@ -179,7 +182,7 @@ class Graph:
             if obstacle is primary_obstacle:
                 continue
 
-            if obstacle.raycast(n0.x, n0.y, n1.x, n1.y, result):
+            if obstacle.raycast(n0.x, n0.y, n1.x, n1.y, result).blocked:
                 return result
 
         return result
