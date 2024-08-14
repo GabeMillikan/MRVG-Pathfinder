@@ -1,8 +1,18 @@
+from dataclasses import dataclass
 from threading import Lock
-from typing import Generator, Literal, Sequence
+from typing import Generator, Sequence
 
 from .node import Node
 from .shapes import Polygon, RaycastResult
+
+
+@dataclass
+class PathfindingNode:
+    x: float
+    y: float
+    g: float
+    h: float
+    f: float
 
 
 class Graph:
@@ -12,7 +22,7 @@ class Graph:
     ) -> None:
         self._lock = Lock()
         self._obstacles: set[Polygon] = set()
-        self._nodes: dict[float, dict[float, Node]] = {}  # nodes[y][x] = node
+        self._nodes: dict[tuple[float, float], Node] = {}  # nodes[(x, y)] = node
 
         for o in obstacles:
             self.add_obstacle(o)
@@ -22,14 +32,12 @@ class Graph:
         yield from self._obstacles
 
     def _get_or_create_node(self, x: float, y: float) -> tuple[Node, bool]:
-        self._nodes.setdefault(y, {})
-        node = self._nodes[y].get(x)
-
+        node = self._nodes.get((x, y))
         if node:
             return node, False
 
         node = Node(x, y)
-        self._nodes[y][x] = node
+        self._nodes[x, y] = node
         return node, True
 
     def _get_encompassing_obstacles(
@@ -39,10 +47,6 @@ class Graph:
         for o in self._obstacles:  # TODO: quad tree
             if o.includes_point(node.x, node.y):
                 yield o
-
-    def _all_nodes(self) -> Generator[Node, None, None]:
-        for row in self._nodes.values():
-            yield from row.values()
 
     def _add_obstacle_locked(
         self,
@@ -72,7 +76,7 @@ class Graph:
                 created_convex_nodes.add(node)
 
         # check if this new obstacle touches any preexisting nodes
-        for node in self._all_nodes():
+        for node in self._nodes.values():
             if obstacle in node.encompassing_obstacles.all:
                 continue
 
@@ -88,7 +92,7 @@ class Graph:
                 node.connections.sever()
 
         # sever connections blocked by the new obstacle
-        for node in self._all_nodes():
+        for node in self._nodes.values():
             if node.concave:
                 continue
 
@@ -118,7 +122,7 @@ class Graph:
 
         # create connections to and from new convex nodes
         for node in created_convex_nodes:
-            for other in self._all_nodes():
+            for other in self._nodes.values():
                 if node is other:
                     continue
 
@@ -212,6 +216,9 @@ class Graph:
     ) -> list[tuple[float, float]] | None:
         if not self.raycast(*start_point, *end_point).blocked:
             return [start_point, end_point]
+
+        closed_set: dict[float, dict[float, PathfindingNode]] = {}
+        open_set: dict[float, dict[float, PathfindingNode]] = {}
 
         return []
 

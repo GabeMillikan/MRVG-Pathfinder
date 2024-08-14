@@ -139,7 +139,7 @@ class Visualizer:
             )
 
         # connections
-        for node in self.graph._all_nodes():  # noqa: SLF001
+        for node in self.graph._nodes.values():  # noqa: SLF001
             for other in node.connections.tuple:
                 draw.line(
                     (
@@ -163,7 +163,7 @@ class Visualizer:
                 )
 
         # nodes
-        for node in self.graph._all_nodes():  # noqa: SLF001
+        for node in self.graph._nodes.values():  # noqa: SLF001
             draw.circle(
                 self.coordinates_to_pixel(node.x, node.y),
                 4 if node.concave else 7,
