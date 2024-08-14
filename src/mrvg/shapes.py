@@ -1,7 +1,9 @@
-from dataclasses import dataclass
-from typing import Generator, Literal, Sequence, TypeAlias
+import bisect
+from dataclasses import dataclass, field
+from typing import Any, Generator, Literal, Sequence, TypeAlias, TypeVar
 
 Pair: TypeAlias = tuple[float, float]
+Comparable = TypeVar("Comparable", bound=Any)
 
 
 def _cross_product(v1: Pair, v2: Pair) -> float:
@@ -10,35 +12,6 @@ def _cross_product(v1: Pair, v2: Pair) -> float:
 
 def _vec_subtract(v1: Pair, v2: Pair) -> Pair:
     return v1[0] - v2[0], v1[1] - v2[1]
-
-
-def _line_segments_intersect(
-    o0: Pair,  # origin
-    d0: Pair,  # direction (magnitude is length of line)
-    o1: Pair,
-    d1: Pair,
-) -> bool:
-    """
-    An intersection occurs even if an endpoint is
-    incident, or if the lines are overlapping.
-    """
-
-    # AABB check
-    if min(o0[0], o0[0] + d0[0]) > max(o1[0], o1[0] + d1[0]):
-        return False
-    if min(o1[0], o1[0] + d1[0]) > max(o0[0], o0[0] + d0[0]):
-        return False
-    if min(o0[1], o0[1] + d0[1]) > max(o1[1], o1[1] + d1[1]):
-        return False
-    if min(o1[1], o1[1] + d1[1]) > max(o0[1], o0[1] + d0[1]):
-        return False
-
-    d0_cross_d1 = _cross_product(d0, d1)
-    o1_minus_o0 = _vec_subtract(o1, o0)
-    return (
-        0 <= _cross_product(o1_minus_o0, d1) <= d0_cross_d1
-        and 0 <= _cross_product(o1_minus_o0, d0) <= d0_cross_d1
-    )
 
 
 @dataclass
@@ -50,6 +23,141 @@ class Vertex:
 
     vec_from_prev_vertex: tuple[float, float]
     vec_to_next_vertex: tuple[float, float]
+
+
+RaycastSegment: TypeAlias = tuple[
+    float,  # start (percent of ray)
+    float,  # stop (percent of ray)
+    Literal[-1, 1],  # -1: graze left, 1: graze right
+]
+
+
+def _colinear_segments_overlapping_region(
+    r_o: Pair,
+    r_d: Pair,
+    t_o: Pair,
+    t_d: Pair,
+) -> RaycastSegment | Literal[False]:
+    r"""
+    Given two colinear line segments:
+    $$
+        R(r) = R_o + rR_d, \quad 0 \leq r 1\leq \\
+        T(t) = T_o + tT_d, \quad 0 \leq r 1\leq
+    $$
+    Find the interval of $r$ for which the lines are coincident.
+
+    The math is quite straightforward and the answer comes out to be:
+    $$
+        k = \frac{T_{dx}}{R_{dx}} = \frac{T_{dy}}{R_{dy}} \\
+        r_i = \frac{T_{ox} - R_{ox}}{R_{dx}} = \frac{T_{oy} - R_{oy}}{R_{dy}} \\
+        r_f = r_i + k
+    $$
+    Where you can use any of the axes that don't have a zero denominator.
+    """
+    if abs(r_d[0]) > abs(r_d[1]):
+        axis = 0
+    else:
+        axis = 1
+
+    if r_d[axis] == 0:
+        return False
+
+    k = t_d[axis] / r_d[axis]
+    r_i = (t_o[axis] - r_o[axis]) / r_d[axis]
+    r_f = r_i + k
+
+    if k < 0:
+        r_i, r_f, side = r_f, r_i, -1
+    else:
+        side = 1
+
+    if r_i > 1 or r_f < 0:
+        return False
+
+    return (max(0, r_i), min(1, r_f), side)
+
+
+def _raycast_segment(
+    r_o: Pair,  # origin of ray
+    r_d: Pair,  # direction of ray (magnitude is length of line)
+    t_o: Pair,  # origin of target line segment
+    t_d: Pair,  # direction of target line segment (magnitude is length of line)
+) -> RaycastSegment | bool:
+    """
+    An intersection occurs when the lines cross
+    or if they are overlapping, but not when an
+    endpoint is incident on the other segment.
+    """
+    rd_cross_td = _cross_product(r_d, t_d)
+    delta_o = _vec_subtract(t_o, r_o)
+
+    if rd_cross_td == 0:  # parallel
+        if _cross_product(delta_o, r_d) != 0:  # not colinear
+            return False
+
+        return _colinear_segments_overlapping_region(
+            r_o,
+            r_d,
+            t_o,
+            t_d,
+        )
+
+    r_t = _cross_product(delta_o, t_d) / rd_cross_td
+    if not (0 < r_t < 1):
+        # point of intersection does not occur on the ray
+        return False
+
+    t_t = _cross_product(delta_o, r_d) / rd_cross_td
+    if 0 < t_t < 1:
+        # intersection is inside the target line
+        return True
+
+    if t_t == 0:
+        return (r_t, r_t, 1 if rd_cross_td > 0 else -1)
+    if t_t == 1:
+        return (r_t, r_t, -1 if rd_cross_td > 0 else 1)
+
+    return False
+
+
+@dataclass
+class RaycastResult:
+    # when None, the Ray was fully blocked
+    segments: list[RaycastSegment] | None = field(default_factory=list)
+
+    def add_segment(self, segment: RaycastSegment) -> bool:
+        if self.segments is None:
+            return True
+
+        start, stop, side = segment
+
+        i = bisect.bisect_left(self.segments, (start, -float("inf"), -2))
+        while i < len(self.segments):
+            p_start, p_stop, p_side = self.segments[i]
+            if p_start > start:
+                break
+
+            if p_side != side:
+                self.segments = None
+                return True
+
+            stop = max(stop, p_stop)
+            del self.segments[i]
+
+        self.segments.insert(i, (start, stop, side))
+        return False
+
+    @property
+    def blocked(self) -> bool:
+        return self.segments is None
+
+    @property
+    def grazed(self) -> bool:
+        return self.segments is not None and len(self.segments) > 0
+
+    @property
+    def free(self) -> bool:
+        return self.segments is not None and len(self.segments) == 0
 
 
 class Polygon:
@@ -96,7 +204,7 @@ class Polygon:
         v: tuple[float, float],
         x: float,
         y: float,
-    ) -> Literal[0, 1, 2]:  # 0: not too narrow, 1: parallel, 2: too narrow
+    ) -> bool:
         r"""
         Returns true if the line through $\vec{v}$ with direction $(x, y)$
         passes through the interior angle of the vertex at $\vec{v}$.
@@ -112,7 +220,7 @@ class Polygon:
         are equal. Additionally, $\vec{b}$ is parallel to
         $\vec{a}$ or $\vec{c}$ if the corresponding product is zero.
         Therefore, if:
-        $(\vec{a} \cross \vec{b}) \cdot (\vec{b} \cross \vec{c}) \leq 0$
+        $(\vec{a} \cross \vec{b}) \cdot (\vec{b} \cross \vec{c}) < 0$
         then $\vec{b}$ is "within" the a-b span. Note that $\vec{-b}$
         simplifies to the same inequality, so we don't need to re-process.
 
@@ -122,41 +230,65 @@ class Polygon:
         a_x, a_y = vert.vec_from_prev_vertex
         c_x, c_y = vert.vec_to_next_vertex
 
-        result = (a_x * y - a_y * x) * (x * c_y - y * c_x)
-        if result < 0:
-            return 2
-        if result == 0:
-            return 1
-        return 0
+        a_cross_b = a_x * y - a_y * x
+        c_cross_b = x * c_y - y * c_x
+
+        result = a_cross_b * c_cross_b
+        return result < 0
 
     def includes_point(self, x: float, y: float) -> bool:
         raise NotImplementedError
 
-    def perimeter_intersects_line(
+    def raycast_segmented(
         self,
         x0: float,
         y0: float,
         x1: float,
         y1: float,
-    ) -> bool:
-        # TODO: optimize this
+    ) -> Generator[RaycastSegment | bool, None, None]:
+        """
+        Note that this isn't very well optimized
+        because in most scenarios there is a better
+        way to perform this calculation anyway.
+        This (slow) method is provided just as an example
+        of a mathematically complete solution.
+        """
 
         if len(self.vertices) < 2:
-            return False
+            return
 
         origin = x0, y0
         direction = x1 - x0, y1 - y0
 
-        for v in self.vertices[:-1]:
-            if _line_segments_intersect(
+        for v in self.vertices:
+            yield _raycast_segment(
                 origin,
                 direction,
                 (v.x, v.y),
                 v.vec_to_next_vertex,
-            ):
-                return True
+            )
 
-        return False
+    def raycast(
+        self,
+        x0: float,
+        y0: float,
+        x1: float,
+        y1: float,
+        update_result: RaycastResult | None = None,
+    ) -> RaycastResult:
+        r = RaycastResult() if update_result is None else update_result
+
+        for segment in self.raycast_segmented(x0, y0, x1, y1):
+            if segment is False:
+                continue
+            if segment is True or r.add_segment(segment):
+                r.segments = None
+                return r
+
+        return r
+
+    def __str__(self) -> str:
+        return "[" + ", ".join(f"({v.x:g}, {v.y:g})" for v in self.vertices) + "]"
 
 
 class Rectangle(Polygon):

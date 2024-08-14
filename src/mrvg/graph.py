@@ -2,7 +2,7 @@ from threading import Lock
 from typing import Generator, Sequence
 
 from .node import Node
-from .shapes import Polygon
+from .shapes import Polygon, RaycastResult
 
 
 class Graph:
@@ -36,8 +36,7 @@ class Graph:
         self,
         node: Node,
     ) -> Generator[Polygon, None, None]:
-        # TODO: optimize this using a quad tree
-        for o in self._obstacles:
+        for o in self._obstacles:  # TODO: quad tree
             if o.includes_point(node.x, node.y):
                 yield o
 
@@ -49,6 +48,7 @@ class Graph:
         self,
         obstacle: Polygon,
     ) -> None:
+        print(f"Adding obstacle: {obstacle}")
         assert obstacle not in self._obstacles, "This obstacle is already in the graph."
 
         created_convex_nodes: set[Node] = set()
@@ -82,6 +82,9 @@ class Graph:
             # must be concave because convex vertices were handled above
             became_concave = node.encompassing_obstacles.add(obstacle, False)
             if became_concave:
+                print(
+                    f"Severing {node} connections because it's now concave.",
+                )
                 node.connections.sever()
 
         # sever connections blocked by the new obstacle
@@ -89,33 +92,32 @@ class Graph:
             if node.concave:
                 continue
 
-            # immediately blocked because the connection now
-            # points towards an interior angle
-            if obstacle in node.encompassing_obstacles.convex:
-                vertex = node.x, node.y
-                for other in node.connections.tuple:
-                    if obstacle.vertex_vector_direction_too_narrow(
-                        vertex,
+            for other in node.connections.tuple:
+                # blocking (or useless) because too narrow...
+                if (
+                    obstacle in node.encompassing_obstacles.convex
+                    and obstacle.vertex_vector_direction_too_narrow(
+                        (node.x, node.y),
                         other.x - node.x,
                         other.y - node.y,
-                    ):
-                        node.connections.sever(other)
-
-                continue
-
-            for other in node.connections.tuple:
-                # TODO: do a really quick distance squared test first
-                if obstacle.perimeter_intersects_line(
-                    node.x,
-                    node.y,
-                    other.x,
-                    other.y,
+                    )
                 ):
+                    print(
+                        f"Severing {node} -> {other} because it's now outgoing too narrow.",
+                    )
                     node.connections.sever(other)
+                    continue
+
+                # blocking by raycast...
+                if self._raycast_between_nodes(node, other, obstacle).blocked:
+                    print(f"Severing {node} -> {other} because it's now blocked.")
+                    node.connections.sever(other)
+
+                if (node.x, node.y, other.x, other.y) == (2, 1, 2, 3):
+                    print("RAYCAST FAILED (YIPPEE)")
 
         # create connections to and from new convex nodes
         for node in created_convex_nodes:
-            vertex = node.x, node.y
             for other in self._all_nodes():
                 if node is other:
                     continue
@@ -128,39 +130,59 @@ class Graph:
 
                 if any(
                     o.vertex_vector_direction_too_narrow(
-                        vertex,
+                        (node.x, node.y),
                         other.x - node.x,
                         other.y - node.y,
                     )
-                    >= (2 if (other.x, other.y) in o.vertex_map else 1)
                     for o in node.encompassing_obstacles.convex
-                ):
+                ):  # TODO: quad tree - we shouldn't need to calculate this for _every_ node, just for regions
                     print(
-                        "Skipping",
-                        node,
-                        "to",
-                        other,
-                        "link due to narrow vertex vector",
+                        f"Did not connect {node} -> {other} because it's outgoing too narrow.",
                     )
                     continue
 
-                if self._raycast_between_nodes(node, other):
-                    print("Skipping", node, "to", other, "link due to raycast")
+                if any(
+                    o.vertex_vector_direction_too_narrow(
+                        (other.x, other.y),
+                        node.x - other.x,
+                        node.y - other.y,
+                    )
+                    for o in other.encompassing_obstacles.convex
+                ):  # TODO: quad tree - we shouldn't need to calculate this for _every_ node, just for regions
+                    print(
+                        f"Did not connect {node} -> {other} because it's incoming to narrow.",
+                    )
                     continue
 
-                print("Linked", node, "to", other)
+                if self._raycast_between_nodes(node, other, obstacle).blocked:
+                    print(f"Did not connect {node} -> {other} because it's blocked")
+                    continue
+
+                print(f"Connected {node} -> {other}")
                 node.connections.link(other)
 
         # store the new obstacle
         self._obstacles.add(obstacle)
 
-    def _raycast_between_nodes(self, n0: Node, n1: Node) -> Polygon | None:
-        # TODO: optimize with quad tree + distance squared check?
-        for obstacle in self._obstacles:
-            if obstacle.perimeter_intersects_line(n0.x, n0.y, n1.x, n1.y):
-                return obstacle
+    def _raycast_between_nodes(
+        self,
+        n0: Node,
+        n1: Node,
+        primary_obstacle: Polygon | None = None,
+    ) -> RaycastResult:
+        if primary_obstacle is not None:
+            result = primary_obstacle.raycast(n0.x, n0.y, n1.x, n1.y)
+        else:
+            result = RaycastResult()
 
-        return None
+        for obstacle in self._obstacles:  # TODO: quad tree
+            if obstacle is primary_obstacle:
+                continue
+
+            if obstacle.raycast(n0.x, n0.y, n1.x, n1.y, result):
+                return result
+
+        return result
 
     def add_obstacle(self, obstacle: Polygon) -> None:
         with self._lock:
