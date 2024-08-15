@@ -1,4 +1,4 @@
-from typing import Literal, Sequence
+from typing import Sequence
 
 
 class AABB:
