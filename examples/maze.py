@@ -35,7 +35,6 @@ for y, row in enumerate(data.splitlines()[::-1]):
             before = time.perf_counter()
             graph.add_obstacle(mrvg.Rectangle(x - 0.5, y - 0.5, x + 0.5, y + 0.5))
             print(f"Added {(x, y)} in {(time.perf_counter() - before) * 1000:.2f}ms")
-            print()
         elif v == "A":
             start_point = (x, y)
         elif v == "B":

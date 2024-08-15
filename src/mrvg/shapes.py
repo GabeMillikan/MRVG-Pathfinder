@@ -2,6 +2,8 @@ import bisect
 from dataclasses import dataclass, field
 from typing import Any, Generator, Literal, Sequence, TypeAlias, TypeVar
 
+from .bounding_box import AABB
+
 Pair: TypeAlias = tuple[float, float]
 Comparable = TypeVar("Comparable", bound=Any)
 
@@ -198,6 +200,7 @@ class Polygon:
     ) -> None:
         self.vertices = tuple(self._bake_vertices(counter_clockwise_vertices))
         self.vertex_map = {(v.x, v.y): v for v in self.vertices}
+        self.bounding_box = AABB.from_points(counter_clockwise_vertices)
 
     def vertex_vector_direction_too_narrow(
         self,

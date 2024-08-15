@@ -1,10 +1,13 @@
 from math import ceil
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 from PIL import Image, ImageDraw
 
 from .bounding_box import AABB
 from .graph import Graph
+
+if TYPE_CHECKING:
+    from .quad_tree import QuadTree
 
 
 class Visualizer:
@@ -16,6 +19,7 @@ class Visualizer:
         height: int = 512,
         *,
         grid: float = 0,
+        draw_quad_tree: bool = False,
         draw_obstacles: bool = True,
         draw_nodes: bool = False,
         draw_paths: bool = True,
@@ -26,6 +30,7 @@ class Visualizer:
         self.width = width
         self.height = height
         self.grid = grid
+        self.draw_quad_tree = draw_quad_tree
         self.draw_obstacles = draw_obstacles
         self.draw_connections = draw_connections
         self.draw_paths = draw_paths
@@ -73,6 +78,25 @@ class Visualizer:
             )
             y += self.grid
 
+    def _draw_quad_tree(self, draw: ImageDraw.ImageDraw) -> None:
+        stack: list[QuadTree] = (
+            [self.graph._quad_tree] if self.graph._quad_tree else []  # noqa: SLF001
+        )
+
+        while stack:
+            tree = stack.pop()
+            stack.extend(tree.quadrants)
+
+            draw.rectangle(
+                (
+                    self.coordinates_to_pixel(tree.bounds.left, tree.bounds.top),
+                    self.coordinates_to_pixel(tree.bounds.right, tree.bounds.bottom),
+                ),
+                None,
+                (194, 129, 23),
+                1,
+            )
+
     def _draw_obstacles(self, draw: ImageDraw.ImageDraw) -> None:
         for obstacle in self.graph.obstacles:
             draw.polygon(
@@ -88,7 +112,7 @@ class Visualizer:
                         self.coordinates_to_pixel(node.x, node.y),
                         self.coordinates_to_pixel(other.x, other.y),
                     ),
-                    (66, 100, 168),
+                    (30, 103, 250),
                     1,
                 )
 
@@ -123,22 +147,30 @@ class Visualizer:
                 )
 
     def calculate_coordinate_bounds(self) -> AABB:
-        return (
-            AABB.from_points(
-                [
-                    *(point for path in self.paths for point in path),
-                    *(vertex for o in self.graph.obstacles for vertex in o.vertex_map),
-                ],
+        points = [
+            *(point for path in self.paths for point in path),
+            *(vertex for o in self.graph.obstacles for vertex in o.vertex_map),
+        ]
+
+        if self.draw_quad_tree and self.graph._quad_tree is not None:  # noqa: SLF001
+            b = self.graph._quad_tree.bounds  # noqa: SLF001
+            points.extend(
+                (
+                    (b.left, b.bottom),
+                    (b.right, b.top),
+                ),
             )
-            .with_aspect_ratio(self.width / self.height)
-            .expand(0.05)
-        )
+
+        aabb = AABB.from_points(points)
+        aabb.expand_inplace_to_aspect_ratio(self.width / self.height)
+        aabb.expand_inplace(0.05)
+        return aabb
 
     def coordinates_to_pixel(self, x: float, y: float) -> tuple[float, float]:
         b = self.coordinate_bounds
         return (
             self.width * (x - b.left) / (b.right - b.left),
-            self.height * (b.right - y) / (b.top - b.bottom),
+            self.height * (b.top - y) / (b.top - b.bottom),
         )
 
     def update(self) -> None:
@@ -146,9 +178,11 @@ class Visualizer:
         self.image = Image.new("RGB", (self.width, self.height), (255, 255, 255))
         draw = ImageDraw.Draw(self.image)
 
-        # grid
         if self.grid > 0:
             self._draw_grid(draw)
+
+        if self.draw_quad_tree:
+            self._draw_quad_tree(draw)
 
         if self.draw_obstacles:
             self._draw_obstacles(draw)

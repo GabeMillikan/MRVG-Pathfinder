@@ -6,6 +6,7 @@ from threading import Lock
 from typing import Generator, Sequence
 
 from .node import Node
+from .quad_tree import QuadTree
 from .shapes import Polygon, RaycastResult
 
 
@@ -69,6 +70,7 @@ class Graph:
         self._lock = Lock()
         self._obstacles: set[Polygon] = set()
         self._nodes: dict[tuple[float, float], Node] = {}  # nodes[(x, y)] = node
+        self._quad_tree: QuadTree[Polygon] | None = None
 
         for o in obstacles:
             self.add_obstacle(o)
@@ -99,8 +101,9 @@ class Graph:
         obstacle: Polygon,
     ) -> None:
         assert obstacle not in self._obstacles, "This obstacle is already in the graph."
-        time_spent_raycasting = 0
         created_convex_nodes: set[Node] = set()
+        if self._quad_tree is None:
+            self._quad_tree = QuadTree.create(obstacle.bounding_box)
 
         # create or update nodes on each convex point on the obstacle
         for v in obstacle.vertices:
@@ -152,10 +155,8 @@ class Graph:
                     continue
 
                 # blocking by raycast...
-                before = time.perf_counter()
                 if self._node_raycast(node, other, obstacle).blocked:
                     node.connections.sever(other)
-                time_spent_raycasting += time.perf_counter() - before
 
         # create connections to and from new convex nodes
         for node in created_convex_nodes:
@@ -189,18 +190,14 @@ class Graph:
                 ):  # TODO: quad tree - we shouldn't need to calculate this for _every_ node, just for regions
                     continue
 
-                before = time.perf_counter()
                 if self._node_raycast(node, other, obstacle).blocked:
-                    time_spent_raycasting += time.perf_counter() - before
                     continue
-                time_spent_raycasting += time.perf_counter() - before
 
                 node.connections.link(other)
 
         # store the new obstacle
         self._obstacles.add(obstacle)
-
-        print(f"Spent {time_spent_raycasting * 1000:.2f}ms raycasting")
+        self._quad_tree = self._quad_tree.add(obstacle.bounding_box, obstacle)
 
     def _node_raycast(
         self,
@@ -209,10 +206,8 @@ class Graph:
         prioritize_obstacle: Polygon | None = None,
     ) -> RaycastResult:
         return self.raycast(
-            n0.x,
-            n0.y,
-            n1.x,
-            n1.y,
+            *n0.point,
+            *n1.point,
             prioritize_obstacle,
         )
 
@@ -234,7 +229,10 @@ class Graph:
         ):
             return result
 
-        for obstacle in self._obstacles:  # TODO: quad tree
+        if not self._quad_tree:
+            return result
+
+        for obstacle in self._quad_tree.find_items_on_line(*origin, *direction):
             if obstacle is prioritize_obstacle:
                 continue
             if obstacle.raycast(origin, direction, result).blocked:
