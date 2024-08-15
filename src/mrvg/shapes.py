@@ -143,7 +143,8 @@ class RaycastResult:
                 self.segments = None
                 return True
 
-            stop = max(stop, p_stop)
+            if p_stop > stop:
+                stop = p_stop
             del self.segments[i]
 
         self.segments.insert(i, (start, stop, side))
@@ -236,8 +237,7 @@ class Polygon:
         a_cross_b = a_x * y - a_y * x
         c_cross_b = x * c_y - y * c_x
 
-        result = a_cross_b * c_cross_b
-        return result < 0
+        return a_cross_b * c_cross_b < 0
 
     def includes_point(self, x: float, y: float) -> bool:
         raise NotImplementedError
@@ -254,7 +254,6 @@ class Polygon:
         This (slow) method is provided just as an example
         of a mathematically complete solution.
         """
-
         if len(self.vertices) < 2:
             return
 
