@@ -100,8 +100,6 @@ class Graph:
     ) -> None:
         assert obstacle not in self._obstacles, "This obstacle is already in the graph."
         time_spent_raycasting = 0
-        time_spent_narrowing = 0
-        time_spent_encompassing = 0
         created_convex_nodes: set[Node] = set()
 
         # create or update nodes on each convex point on the obstacle
@@ -111,12 +109,10 @@ class Graph:
 
             node, created = self._get_or_create_node(v.x, v.y)
             if created:
-                before = time.perf_counter()
                 node.encompassing_obstacles.update(
                     self._get_encompassing_obstacles(node),
                     False,  # cannot be convex because otherwise the node would've existed
                 )
-                time_spent_encompassing += time.perf_counter() - before
             became_concave = node.encompassing_obstacles.add(obstacle, True)
             if became_concave:
                 node.connections.sever()
@@ -129,11 +125,8 @@ class Graph:
             if obstacle in node.encompassing_obstacles.all:
                 continue
 
-            before = time.perf_counter()
             if not obstacle.includes_point(*node.point):
-                time_spent_encompassing += time.perf_counter() - before
                 continue
-            time_spent_encompassing += time.perf_counter() - before
 
             # must be concave because convex vertices were handled above
             became_concave = node.encompassing_obstacles.add(obstacle, False)
@@ -147,7 +140,6 @@ class Graph:
 
             for other in node.connections.tuple:
                 # blocking (or useless) because too narrow...
-                before = time.perf_counter()
                 if (
                     obstacle in node.encompassing_obstacles.convex
                     and obstacle.vertex_vector_direction_too_narrow(
@@ -156,10 +148,8 @@ class Graph:
                         other.y - node.y,
                     )
                 ):
-                    time_spent_narrowing += time.perf_counter() - before
                     node.connections.sever(other)
                     continue
-                time_spent_narrowing += time.perf_counter() - before
 
                 # blocking by raycast...
                 before = time.perf_counter()
@@ -179,7 +169,6 @@ class Graph:
                 if other in node.connections.map:
                     continue
 
-                before = time.perf_counter()
                 if any(
                     o.vertex_vector_direction_too_narrow(
                         node.point,
@@ -188,11 +177,8 @@ class Graph:
                     )
                     for o in node.encompassing_obstacles.convex
                 ):  # TODO: quad tree - we shouldn't need to calculate this for _every_ node, just for regions
-                    time_spent_narrowing += time.perf_counter() - before
                     continue
-                time_spent_narrowing += time.perf_counter() - before
 
-                before = time.perf_counter()
                 if any(
                     o.vertex_vector_direction_too_narrow(
                         (other.x, other.y),
@@ -201,9 +187,7 @@ class Graph:
                     )
                     for o in other.encompassing_obstacles.convex
                 ):  # TODO: quad tree - we shouldn't need to calculate this for _every_ node, just for regions
-                    time_spent_narrowing += time.perf_counter() - before
                     continue
-                time_spent_narrowing += time.perf_counter() - before
 
                 before = time.perf_counter()
                 if self._node_raycast(node, other, obstacle).blocked:
@@ -216,8 +200,6 @@ class Graph:
         # store the new obstacle
         self._obstacles.add(obstacle)
 
-        print(f"Spent {time_spent_encompassing * 1000:.2f}ms encompassing")
-        print(f"Spent {time_spent_narrowing * 1000:.2f}ms narrowing")
         print(f"Spent {time_spent_raycasting * 1000:.2f}ms raycasting")
 
     def _node_raycast(
@@ -242,17 +224,20 @@ class Graph:
         y1: float,
         prioritize_obstacle: Polygon | None = None,
     ) -> RaycastResult:
+        origin = x0, y0
+        direction = x1 - x0, y1 - y0
+
         result = RaycastResult()
         if (
             prioritize_obstacle is not None
-            and prioritize_obstacle.raycast(x0, y0, x1, y1, result).blocked
+            and prioritize_obstacle.raycast(origin, direction, result).blocked
         ):
             return result
 
         for obstacle in self._obstacles:  # TODO: quad tree
             if obstacle is prioritize_obstacle:
                 continue
-            if obstacle.raycast(x0, y0, x1, y1, result).blocked:
+            if obstacle.raycast(origin, direction, result).blocked:
                 break
 
         return result

@@ -241,10 +241,8 @@ class Polygon:
 
     def raycast_segmented(
         self,
-        x0: float,
-        y0: float,
-        x1: float,
-        y1: float,
+        origin: tuple[float, float],
+        direction: tuple[float, float],  # where the magnitude is the length
     ) -> Generator[RaycastSegment | bool, None, None]:
         """
         Note that this isn't very well optimized
@@ -257,9 +255,6 @@ class Polygon:
         if len(self.vertices) < 2:
             return
 
-        origin = x0, y0
-        direction = x1 - x0, y1 - y0
-
         for v in self.vertices:
             yield _raycast_segment(
                 origin,
@@ -270,15 +265,13 @@ class Polygon:
 
     def raycast(
         self,
-        x0: float,
-        y0: float,
-        x1: float,
-        y1: float,
+        origin: tuple[float, float],
+        direction: tuple[float, float],  # where the magnitude is the length
         update_result: RaycastResult | None = None,
     ) -> RaycastResult:
         r = RaycastResult() if update_result is None else update_result
 
-        for segment in self.raycast_segmented(x0, y0, x1, y1):
+        for segment in self.raycast_segmented(origin, direction):
             if segment is False:
                 continue
             if segment is True or r.add_segment(segment):
